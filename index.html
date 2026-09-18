@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>School Horror: Night Shift</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+  body, html { width: 100%; height: 100%; overflow: hidden; background: #1a1410; font-family: 'Courier New', Courier, monospace; color: #fff; }
+  
+  canvas { display: block; width: 100vw; height: 100vh; }
+
+  /* Ambient Vignette */
+  #vignette {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background: radial-gradient(circle at center, transparent 60%, rgba(15,8,5,0.6) 98%),
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.12) 50%);
+    background-size: 100% 100%, 100% 4px;
+  }
+
+  /* HUD */
+  #hud { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; z-index: 3; padding: 12px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .time-display { font-size: 20px; font-weight: bold; color: #e74c3c; text-shadow: 0 0 10px rgba(231,76,60,0.8); }
+  
+  .objective-box {
+    background: rgba(28,20,16,0.92); border: 1px solid #754; padding: 8px 12px; border-radius: 6px; font-size: 11px; max-width: 250px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.6);
+  }
+  .obj-title { font-weight: bold; color: #e74c3c; margin-bottom: 4px; border-bottom: 1px dashed #654; padding-bottom: 2px; }
+  .obj-item { color: #ccc; margin: 2px 0; }
+  .obj-item.done { color: #2ecc71; text-decoration: line-through; }
+
+  .status-box { background: rgba(28,20,16,0.92); border: 1px solid #754; padding: 8px 12px; border-radius: 6px; font-size: 10px; min-width: 130px; }
+  .bar-container { width: 100%; height: 6px; background: #222; border: 1px solid #444; margin-top: 3px; border-radius: 2px; overflow: hidden; }
+  .bar-fill { height: 100%; transition: width 0.1s linear; }
+  #stamina-bar { background: #3498db; width: 100%; }
+  #battery-bar { background: #f1c40f; width: 100%; }
+
+  #prompt {
+    position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+    background: rgba(35,22,16,0.95); border: 1px solid #e74c3c; color: #fff;
+    padding: 8px 18px; font-size: 12px; border-radius: 4px; display: none; text-align: center; z-index: 4;
+    box-shadow: 0 0 12px rgba(231,76,60,0.5);
+  }
+
+  /* Screens */
+  .screen {
+    position: absolute; inset: 0; z-index: 10; background: rgba(22,15,12,0.96);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 15px;
+    overflow-y: auto;
+  }
+  h1 { font-size: 32px; color: #e74c3c; text-shadow: 0 0 15px rgba(231,76,60,0.8); margin-bottom: 10px; letter-spacing: 2px; }
+  p { max-width: 480px; color: #ddd; font-size: 12px; line-height: 1.5; margin-bottom: 15px; }
+  .btn {
+    padding: 14px 40px; background: #e74c3c; border: 2px solid #fff; color: #fff; font-size: 16px;
+    font-weight: bold; font-family: inherit; cursor: pointer; border-radius: 6px;
+    box-shadow: 0 0 20px rgba(231,76,60,0.6); transition: transform 0.1s, background 0.2s;
+    touch-action: manipulation; margin-top: 5px;
+  }
+  .btn:active { transform: scale(0.95); background: #c0392b; }
+
+  /* Touch Controls */
+  #touch-controls { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: space-between; padding: 0 15px; z-index: 5; pointer-events: none; }
+  .dpad { display: grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 4px; pointer-events: auto; }
+  .control-group { display: flex; gap: 8px; pointer-events: auto; align-items: flex-end; }
+  .t-btn { background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 8px; color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center; touch-action: manipulation; }
+  .t-btn:active { background: rgba(231,76,60,0.7); }
+</style>
+</head>
+<body>
+
+<div id="vignette"></div>
+
+<div id="hud">
+  <div>
+    <div class="time-display" id="clock">12:00 AM</div>
+    <div class="objective-box" style="margin-top:6px;">
+      <div class="obj-title">MISSIONS:</div>
+      <div class="obj-item" id="obj-1">1. Find 2 Fuses in Classrooms (<span id="fuse-count">0</span>/2)</div>
+      <div class="obj-item" id="obj-2">2. Repair Basement Generator</div>
+      <div class="obj-item" id="obj-3">3. Get Master Keycard</div>
+      <div class="obj-item" id="obj-4">4. Escape through Main Gate</div>
+    </div>
+  </div>
+  <div class="status-box">
+    STAMINA <div class="bar-container"><div id="stamina-bar" class="bar-fill"></div></div>
+    BATTERY <div class="bar-container"><div id="battery-bar" class="bar-fill"></div></div>
+  </div>
+</div>
+
+<div id="prompt">[E] SEARCH DESK</div>
+
+<div id="start-screen" class="screen">
+  <h1>SCHOOL HORROR</h1>
+  <p>
+    Explore the school classrooms, find the fuses, and repair the power.<br><br>
+    <b>OBJECTIVES:</b><br>
+    • Search desks inside <b>Classrooms</b> for 2 Fuses<br>
+    • Power up the <b>Generator</b> in the basement<br>
+    • Grab the <b>Keycard</b> & Escape the Gate<br>
+    • Hide in <b>Lockers</b> if the stalker approaches<br><br>
+    <b>CONTROLS:</b> D-Pad / WASD to move | E to interact
+  </p>
+  <button class="btn" id="start-btn" onclick="startGame()">START GAME</button>
+</div>
+
+<div id="gameover-screen" class="screen" style="display:none;">
+  <h1>CAUGHT IN THE HALLWAY</h1>
+  <p>The shadow trapped you before you could reach the exit.</p>
+  <button class="btn" onclick="location.reload()">TRY AGAIN</button>
+</div>
+
+<div id="win-screen" class="screen" style="display:none;">
+  <h1 style="color:#2ecc71;">ESCAPED THE NIGHT!</h1>
+  <p>You restored power, unlocked the main gate, and survived!</p>
+  <button class="btn" onclick="location.reload()">PLAY AGAIN</button>
+</div>
+
+<div id="touch-controls">
+  <div class="dpad">
+    <div></div><div class="t-btn" id="btn-up">▲</div><div></div>
+    <div class="t-btn" id="btn-left">◄</div><div></div><div class="t-btn" id="btn-right">►</div>
+    <div></div><div class="t-btn" id="btn-down">▼</div><div></div>
+  </div>
+  <div class="control-group">
+    <div class="t-btn" id="btn-run" style="width:48px; height:48px;">⚡</div>
+    <div class="t-btn" id="btn-action" style="width:54px; height:54px; background:rgba(231,76,60,0.6); font-weight:bold;">E</div>
+    <div class="t-btn" id="btn-flash" style="width:48px; height:48px;">🔦</div>
+  </div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+/* Audio Synthesizer */
+class SoundEngine {
+  constructor() { this.ctx = null; }
+  init() { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+  playStep() {
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(80 + Math.random()*20, this.ctx.currentTime);
+    gain.gain.setValueAtTime(0.03, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(); osc.stop(this.ctx.currentTime + 0.08);
+  }
+  playPickup() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.frequency.setValueAtTime(480, now);
+    osc.frequency.exponentialRampToValueAtTime(960, now + 0.15);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(now); osc.stop(now + 0.15);
+  }
+  playHeartbeat(vol) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.frequency.setValueAtTime(60, now);
+    osc.frequency.exponentialRampToValueAtTime(20, now + 0.12);
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(now); osc.stop(now + 0.15);
+  }
+}
+const audio = new SoundEngine();
+
+/* Canvas Setup */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
+
+window.addEventListener("resize", () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+});
+
+let gameActive = false;
+let gameTime = 0;
+let generatorPower = false;
+
+/* World Map Dimensions */
+const MAP_W = 2400;
+const MAP_H = 1600;
+
+/* Detailed Rooms Layout */
+const rooms = [
+  { id: 'hallway', x: 200, y: 650, w: 2000, h: 300, name: 'Main Corridor' },
+  { id: 'classA', x: 200, y: 150, w: 550, h: 500, name: 'Classroom 1-A' },
+  { id: 'classB', x: 850, y: 150, w: 550, h: 500, name: 'Classroom 1-B' },
+  { id: 'lab', x: 1500, y: 150, w: 700, h: 500, name: 'Science Laboratory' },
+  { id: 'security', x: 200, y: 950, w: 550, h: 500, name: 'Security Guard Office' },
+  { id: 'generator', x: 850, y: 950, w: 550, h: 500, name: 'Generator Room' },
+  { id: 'exitLobby', x: 1500, y: 950, w: 700, h: 500, name: 'School Main Exit' }
+];
+
+/* Wall System with Entrance Openings */
+const walls = [
+  { x: 180, y: 130, w: 2040, h: 20 },
+  { x: 180, y: 1450, w: 2040, h: 20 },
+  { x: 180, y: 130, w: 20, h: 1340 },
+  { x: 2200, y: 130, w: 20, h: 1340 },
+  // Hallway Top Wall with Classroom Doors
+  { x: 200, y: 640, w: 2000, h: 15, doors: [420, 1070, 1750] },
+  // Hallway Bottom Wall with Doors
+  { x: 200, y: 945, w: 2000, h: 15, doors: [420, 1070, 1750] },
+  // Room Dividers
+  { x: 750, y: 150, w: 20, h: 490 },
+  { x: 1400, y: 150, w: 20, h: 490 },
+  { x: 750, y: 960, w: 20, h: 490 },
+  { x: 1400, y: 960, w: 20, h: 490 }
+];
+
+/* Interactive School Props */
+const desks = [
+  { x: 320, y: 300, w: 90, h: 55, searched: false, item: 'fuse', label: 'Classroom Desk' },
+  { x: 500, y: 300, w: 90, h: 55, searched: false, item: null, label: 'Classroom Desk' },
+  { x: 320, y: 440, w: 90, h: 55, searched: false, item: 'battery', label: 'Classroom Desk' },
+  { x: 970, y: 300, w: 90, h: 55, searched: false, item: 'fuse', label: 'Teacher Desk' },
+  { x: 1150, y: 300, w: 90, h: 55, searched: false, item: null, label: 'Classroom Desk' },
+  { x: 1680, y: 320, w: 100, h: 60, searched: false, item: 'battery', label: 'Lab Bench' }
+];
+
+const lockers = [
+  { x: 250, y: 658, w: 120, h: 32 },
+  { x: 780, y: 658, w: 120, h: 32 },
+  { x: 1250, y: 658, w: 120, h: 32 },
+  { x: 1850, y: 658, w: 120, h: 32 }
+];
+
+const vendingMachines = [
+  { x: 620, y: 658, w: 70, h: 35 },
+  { x: 1520, y: 658, w: 70, h: 35 }
+];
+
+const blackboard = [
+  { x: 350, y: 155, w: 240, h: 12 },
+  { x: 1000, y: 155, w: 240, h: 12 }
+];
+
+const generatorObj = { x: 1080, y: 1150, w: 120, h: 90 };
+const securityDesk = { x: 420, y: 1150, w: 110, h: 65, hasKeycard: true };
+const exitGate = { x: 1780, y: 1420, w: 140, h: 30 };
+
+/* Player State */
+const player = {
+  x: 1200, y: 800, angle: Math.PI / 2,
+  speed: 3.5, stamina: 100, battery: 100, flashlight: true,
+  fusesCollected: 0, hasKeycard: false, isHiding: false
+};
+
+/* Stalker Enemy */
+const monster = {
+  x: 1850, y: 350, angle: 0, speed: 2.2,
+  state: 'patrol', targetWaypoint: 0,
+  waypoints: [
+    { x: 1850, y: 350 }, { x: 1100, y: 350 }, { x: 400, y: 800 },
+    { x: 1200, y: 800 }, { x: 1850, y: 800 }, { x: 450, y: 1200 }
+  ]
+};
+
+/* Controls */
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === 'e') handleInteract();
+  if (e.key.toLowerCase() === 'f') player.flashlight = !player.flashlight;
+});
+window.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+let tUp = false, tDown = false, tLeft = false, tRight = false, tRun = false;
+const bindTouch = (id, setter) => {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', e => { e.preventDefault(); setter(true); });
+  el.addEventListener('touchend', e => { e.preventDefault(); setter(false); });
+};
+bindTouch('btn-up', v => tUp = v);
+bindTouch('btn-down', v => tDown = v);
+bindTouch('btn-left', v => tLeft = v);
+bindTouch('btn-right', v => tRight = v);
+bindTouch('btn-run', v => tRun = v);
+
+document.getElementById('btn-action').addEventListener('touchstart', e => { e.preventDefault(); handleInteract(); });
+document.getElementById('btn-flash').addEventListener('touchstart', e => { e.preventDefault(); player.flashlight = !player.flashlight; });
+
+function handleInteract() {
+  if (!gameActive) return;
+
+  if (player.isHiding) {
+    player.isHiding = false;
+    return;
+  }
+
+  for (let l of lockers) {
+    if (Math.hypot(player.x - (l.x + l.w/2), player.y - (l.y + l.h/2)) < 55) {
+      player.isHiding = true;
+      return;
+    }
+  }
+
+  for (let d of desks) {
+    if (Math.hypot(player.x - (d.x + d.w/2), player.y - (d.y + d.h/2)) < 65 && !d.searched) {
+      d.searched = true;
+      audio.playPickup();
+      if (d.item === 'fuse') {
+        player.fusesCollected++;
+        document.getElementById('fuse-count').textContent = player.fusesCollected;
+        if (player.fusesCollected >= 2) document.getElementById('obj-1').classList.add('done');
+      } else if (d.item === 'battery') {
+        player.battery = Math.min(100, player.battery + 50);
+      }
+      return;
+    }
+  }
+
+  if (Math.hypot(player.x - (generatorObj.x + generatorObj.w/2), player.y - (generatorObj.y + generatorObj.h/2)) < 85) {
+    if (player.fusesCollected >= 2 && !generatorPower) {
+      generatorPower = true;
+      audio.playPickup();
+      document.getElementById('obj-2').classList.add('done');
+    }
+  }
+
+  if (Math.hypot(player.x - (securityDesk.x + securityDesk.w/2), player.y - (securityDesk.y + securityDesk.h/2)) < 85) {
+    if (securityDesk.hasKeycard) {
+      securityDesk.hasKeycard = false;
+      player.hasKeycard = true;
+      audio.playPickup();
+      document.getElementById('obj-3').classList.add('done');
+    }
+  }
+
+  if (Math.hypot(player.x - (exitGate.x + exitGate.w/2), player.y - (exitGate.y + exitGate.h/2)) < 85) {
+    if (player.hasKeycard && generatorPower) {
+      gameActive = false;
+      document.getElementById('obj-4').classList.add('done');
+      document.getElementById('win-screen').style.display = 'flex';
+    }
+  }
+}
+
+let lastStep = 0, lastHeart = 0;
+
+function update(dt) {
+  if (!gameActive) return;
+
+  gameTime += dt;
+  const hrs = Math.floor((gameTime / 900) * 6);
+  const mins = Math.floor((((gameTime / 900) * 6) % 1) * 60);
+  document.getElementById('clock').textContent = `${12 + hrs > 12 ? (12 + hrs)-12 : 12 + hrs}:${mins < 10 ? '0':''}${mins} AM`;
+
+  if (player.flashlight && player.battery > 0) {
+    player.battery = Math.max(0, player.battery - dt * 1.2);
+    if (player.battery === 0) player.flashlight = false;
+  }
+  document.getElementById('battery-bar').style.width = player.battery + '%';
+
+  if (!player.isHiding) {
+    let dx = 0, dy = 0;
+    if (keys['a'] || keys['arrowleft'] || tLeft) dx -= 1;
+    if (keys['d'] || keys['arrowright'] || tRight) dx += 1;
+    if (keys['w'] || keys['arrowup'] || tUp) dy -= 1;
+    if (keys['s'] || keys['arrowdown'] || tDown) dy += 1;
+
+    const isRunning = (keys['shift'] || tRun) && player.stamina > 5;
+    const curSpeed = isRunning ? player.speed * 1.6 : player.speed;
+
+    if (dx !== 0 || dy !== 0) {
+      const len = Math.hypot(dx, dy);
+      dx /= len; dy /= len;
+      player.angle = Math.atan2(dy, dx);
+
+      const nextX = player.x + dx * curSpeed;
+      if (!checkWallCollision(nextX, player.y)) player.x = nextX;
+
+      const nextY = player.y + dy * curSpeed;
+      if (!checkWallCollision(player.x, nextY)) player.y = nextY;
+
+      if (Date.now() - lastStep > (isRunning ? 200 : 340)) {
+        audio.playStep();
+        lastStep = Date.now();
+      }
+
+      if (isRunning) player.stamina = Math.max(0, player.stamina - dt * 25);
+    }
+
+    if (dx === 0 && dy === 0 && player.stamina < 100) {
+      player.stamina = Math.min(100, player.stamina + dt * 15);
+    }
+  }
+  document.getElementById('stamina-bar').style.width = player.stamina + '%';
+
+  const mDist = Math.hypot(monster.x - player.x, monster.y - player.y);
+
+  if (mDist < 480 && Date.now() - lastHeart > Math.max(160, mDist * 1.3)) {
+    audio.playHeartbeat(Math.min(0.4, 1 - mDist / 480));
+    lastHeart = Date.now();
+  }
+
+  if (monster.state === 'patrol') {
+    const wp = monster.waypoints[monster.targetWaypoint];
+    const wDist = Math.hypot(wp.x - monster.x, wp.y - monster.y);
+
+    if (wDist < 25) {
+      monster.targetWaypoint = (monster.targetWaypoint + 1) % monster.waypoints.length;
+    } else {
+      monster.angle = Math.atan2(wp.y - monster.y, wp.x - monster.x);
+      monster.x += Math.cos(monster.angle) * monster.speed;
+      monster.y += Math.sin(monster.angle) * monster.speed;
+    }
+
+    if (!player.isHiding) {
+      if (mDist < 190 || (player.flashlight && mDist < 450)) monster.state = 'chase';
+    }
+  } else if (monster.state === 'chase') {
+    monster.angle = Math.atan2(player.y - monster.y, player.x - monster.x);
+    monster.x += Math.cos(monster.angle) * monster.speed * 1.45;
+    monster.y += Math.sin(monster.angle) * monster.speed * 1.45;
+
+    if (player.isHiding || mDist > 650) monster.state = 'patrol';
+  }
+
+  if (mDist < 30 && !player.isHiding) {
+    gameActive = false;
+    document.getElementById('gameover-screen').style.display = 'flex';
+  }
+
+  const prompt = document.getElementById('prompt');
+  let nearText = null;
+
+  if (player.isHiding) {
+    nearText = "[E] EXIT LOCKER";
+  } else {
+    for (let l of lockers) {
+      if (Math.hypot(player.x - (l.x + l.w/2), player.y - (l.y + l.h/2)) < 55) nearText = "[E] HIDE IN LOCKER";
+    }
+    for (let d of desks) {
+      if (Math.hypot(player.x - (d.x + d.w/2), player.y - (d.y + d.h/2)) < 65 && !d.searched) nearText = "[E] SEARCH " + d.label.toUpperCase();
+    }
+    if (Math.hypot(player.x - (generatorObj.x + generatorObj.w/2), player.y - (generatorObj.y + generatorObj.h/2)) < 85) {
+      nearText = generatorPower ? "GENERATOR ONLINE" : (player.fusesCollected >= 2 ? "[E] REPAIR GENERATOR" : "NEEDS 2 FUSES");
+    }
+    if (Math.hypot(player.x - (securityDesk.x + securityDesk.w/2), player.y - (securityDesk.y + securityDesk.h/2)) < 85) {
+      if (securityDesk.hasKeycard) nearText = "[E] TAKE MASTER KEYCARD";
+    }
+    if (Math.hypot(player.x - (exitGate.x + exitGate.w/2), player.y - (exitGate.y + exitGate.h/2)) < 85) {
+      nearText = (player.hasKeycard && generatorPower) ? "[E] UNLOCK MAIN GATE & ESCAPE" : "GATE LOCKED (POWER & KEYCARD REQUIRED)";
+    }
+  }
+
+  if (nearText) { prompt.style.display = 'block'; prompt.textContent = nearText; }
+  else { prompt.style.display = 'none'; }
+}
+
+function checkWallCollision(px, py) {
+  const r = 16;
+  for (let w of walls) {
+    if (w.doors) {
+      let inDoor = false;
+      for (let dx of w.doors) {
+        if (px >= w.x + dx - 35 && px <= w.x + dx + 75) inDoor = true;
+      }
+      if (inDoor) continue;
+    }
+    if (px + r > w.x && px - r < w.x + w.w && py + r > w.y && py - r < w.y + w.h) return true;
+  }
+  return false;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  const camX = player.x - W / 2;
+  const camY = player.y - H / 2;
+
+  ctx.save();
+  ctx.translate(-camX, -camY);
+
+  /* Background Outside Void */
+  ctx.fillStyle = "#120d0a";
+  ctx.fillRect(0, 0, MAP_W, MAP_H);
+
+  /* Warm Wooden School Floor Rendering */
+  rooms.forEach(r => {
+    // Floor
+    ctx.fillStyle = r.id === 'hallway' ? "#a67c52" : "#8c6543";
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+
+    // Planks texture
+    ctx.strokeStyle = "rgba(60, 35, 20, 0.25)";
+    ctx.lineWidth = 1.5;
+    for (let x = r.x; x < r.x + r.w; x += 40) {
+      ctx.beginPath(); ctx.moveTo(x, r.y); ctx.lineTo(x, r.y + r.h); ctx.stroke();
+    }
+
+    // Room Label
+    ctx.fillStyle = "rgba(40, 20, 10, 0.4)";
+    ctx.font = "bold 20px Courier New";
+    ctx.fillText(r.name, r.x + 25, r.y + 45);
+  });
+
+  /* Blackboards inside classrooms */
+  blackboard.forEach(b => {
+    ctx.fillStyle = "#2d4a3e";
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = "#8d6e63"; ctx.lineWidth = 3; ctx.strokeRect(b.x, b.y, b.w, b.h);
+  });
+
+  /* Desks & Lab Benches */
+  desks.forEach(d => {
+    ctx.fillStyle = d.searched ? "#5d4037" : "#8d6e63";
+    ctx.fillRect(d.x, d.y, d.w, d.h);
+    ctx.strokeStyle = "#3e2723"; ctx.lineWidth = 3; ctx.strokeRect(d.x, d.y, d.w, d.h);
+    if (!d.searched) {
+      ctx.fillStyle = "#f39c12";
+      ctx.fillRect(d.x + d.w/2 - 4, d.y + d.h/2 - 4, 8, 8);
+    }
+  });
+
+  /* Lockers (Matching Image Aesthetic) */
+  lockers.forEach(l => {
+    ctx.fillStyle = "#78909c";
+    ctx.fillRect(l.x, l.y, l.w, l.h);
+    ctx.strokeStyle = "#37474f"; ctx.lineWidth = 3; ctx.strokeRect(l.x, l.y, l.w, l.h);
+    // Locker doors lines
+    for (let lx = l.x + 20; lx < l.x + l.w; lx += 20) {
+      ctx.beginPath(); ctx.moveTo(lx, l.y); ctx.lineTo(lx, l.y + l.h); ctx.stroke();
+    }
+  });
+
+  /* Vending Machines */
+  vendingMachines.forEach(v => {
+    ctx.fillStyle = "#2e7d32";
+    ctx.fillRect(v.x, v.y, v.w, v.h);
+    ctx.strokeStyle = "#1b5e20"; ctx.lineWidth = 3; ctx.strokeRect(v.x, v.y, v.w, v.h);
+    ctx.fillStyle = "#e8f5e9";
+    ctx.fillRect(v.x + 10, v.y + 5, v.w - 20, 12);
+  });
+
+  /* Generator */
+  ctx.fillStyle = generatorPower ? "#2ecc71" : "#7f8c8d";
+  ctx.fillRect(generatorObj.x, generatorObj.y, generatorObj.w, generatorObj.h);
+  ctx.strokeStyle = "#2c3e50"; ctx.lineWidth = 4; ctx.strokeRect(generatorObj.x, generatorObj.y, generatorObj.w, generatorObj.h);
+
+  /* Security Office Desk */
+  ctx.fillStyle = "#4e342e";
+  ctx.fillRect(securityDesk.x, securityDesk.y, securityDesk.w, securityDesk.h);
+  if (securityDesk.hasKeycard) {
+    ctx.fillStyle = "#e74c3c";
+    ctx.fillRect(securityDesk.x + 45, securityDesk.y + 25, 22, 14);
+  }
+
+  /* Main Gate Exit */
+  ctx.fillStyle = "#c0392b";
+  ctx.fillRect(exitGate.x, exitGate.y, exitGate.w, exitGate.h);
+  ctx.fillStyle = "#fff"; ctx.font = "bold 13px Courier New";
+  ctx.fillText("MAIN EXIT GATE", exitGate.x + 12, exitGate.y + 20);
+
+  /* Walls and Doors */
+  walls.forEach(w => {
+    ctx.fillStyle = "#3e2723";
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = "#1b0000"; ctx.lineWidth = 2; ctx.strokeRect(w.x, w.y, w.w, w.h);
+
+    if (w.doors) {
+      w.doors.forEach(dx => {
+        // Door opening frame
+        ctx.fillStyle = "#a67c52";
+        ctx.fillRect(w.x + dx, w.y - 2, 45, w.h + 4);
+        ctx.fillStyle = "#d7ccc8";
+        ctx.fillRect(w.x + dx + 5, w.y + 2, 35, w.h - 4);
+      });
+    }
+  });
+
+  /* Player Character */
+  if (!player.isHiding) {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.rotate(player.angle);
+
+    // Uniform / Hair
+    ctx.fillStyle = "#e67e22";
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = "#f1c40f"; // Blonde hair top
+    ctx.beginPath(); ctx.arc(-2, 0, 12, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = "#ffccbc"; // Hands
+    ctx.fillRect(10, 6, 8, 6); ctx.fillRect(10, -12, 8, 6);
+
+    ctx.restore();
+  }
+
+  /* Stalker / Monster */
+  ctx.save();
+  ctx.translate(monster.x, monster.y);
+  ctx.rotate(monster.angle);
+
+  ctx.fillStyle = "#111";
+  ctx.beginPath(); ctx.arc(0, 0, 20, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = "#e74c3c";
+  ctx.shadowColor = "#e74c3c"; ctx.shadowBlur = 10;
+  ctx.fillRect(8, -8, 5, 4);
+  ctx.fillRect(8, 4, 5, 4);
+  ctx.shadowBlur = 0;
+
+  ctx.restore();
+
+  ctx.restore();
+
+  /* Soft Ambient Creepy Warm Lighting Overlay (Not Pitch Black!) */
+  ctx.save();
+  ctx.fillStyle = generatorPower ? "rgba(25, 15, 10, 0.25)" : "rgba(18, 12, 8, 0.48)";
+  ctx.fillRect(0, 0, W, H);
+
+  /* Flashlight Glow Cutout */
+  if (player.flashlight && !player.isHiding) {
+    ctx.globalCompositeOperation = "destination-out";
+
+    const screenPx = player.x - camX;
+    const screenPy = player.y - camY;
+
+    ctx.beginPath();
+    ctx.moveTo(screenPx, screenPy);
+    ctx.arc(screenPx, screenPy, 380, player.angle - 0.48, player.angle + 0.48);
+    ctx.closePath();
+
+    const flashGrad = ctx.createRadialGradient(screenPx, screenPy, 10, screenPx, screenPy, 380);
+    flashGrad.addColorStop(0, "rgba(255, 255, 255, 0.85)");
+    flashGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = flashGrad;
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.restore();
+}
+
+let lastN = performance.now();
+function gameLoop(now) {
+  const dt = Math.min(0.05, (now - lastN) / 1000);
+  lastN = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(gameLoop);
+}
+
+function startGame() {
+  audio.init();
+  document.getElementById('start-screen').style.display = 'none';
+  gameActive = true;
+  lastN = performance.now();
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
